@@ -1,21 +1,27 @@
 services:
   grafana-alloy:
     image: grafana/alloy:latest
+    container_name: alloy
+    command: ["run", "/etc/alloy/config.alloy"]
     volumes:
-      - ./alloy-config.yaml:/etc/alloy/config.yaml
+      - ./alloy-config.alloy:/etc/alloy/config.alloy:ro
     ports:
-      - "4317:4317"  # OTLP gRPC
-      - "4318:4318"  # OTLP HTTP
-      - "8889:8889"  # Prometheus metrics endpoint
+      # Only map these if receiving OTLP from OUTSIDE docker
+      - "4317:4317"  # OTLP gRPC receiver
+      - "4318:4318"  # OTLP HTTP receiver
+      - "12345:12345" # Default Alloy HTTP server / UI port
+      # Expose Alloy's own metrics if scraped from HOST, otherwise optional
+      - "8889:8889"  # Prometheus metrics endpoint for Alloy itself
     restart: unless-stopped
     networks:
       - observability
 
   grafana:
     image: grafana/grafana:latest
+    container_name: grafana
     volumes:
       - grafana-storage:/var/lib/grafana
-      - ./grafana-provisioning:/etc/grafana/provisioning
+      - ./grafana-provisioning:/etc/grafana/provisioning:ro
     ports:
       - "3000:3000"
     environment:
@@ -31,32 +37,42 @@ services:
 
   loki:
     image: grafana/loki:latest
+    container_name: loki
+    command: ["-config.file=/etc/loki/local-config.yaml"] # Check this path matches the volume mount target
     ports:
-      - "3100:3100"
+      - "3100:3100" # Map to host for Grafana datasource or direct querying
     volumes:
-      - ./loki-config.yaml:/etc/loki/local-config.yaml
-      - loki-data:/tmp/loki
-    command: -config.file=/etc/loki/local-config.yaml
+      - ./loki-config.yaml:/etc/loki/local-config.yaml:ro
+      - loki-data:/loki # Changed path for clarity, ensure loki-config uses /loki
     restart: unless-stopped
     networks:
       - observability
 
   tempo:
     image: grafana/tempo:latest
-    command: -config.file=/etc/tempo/tempo-local.yaml
+    container_name: tempo
+    command: ["-config.file=/etc/tempo/tempo-local.yaml"] # Check this path matches the volume mount target
+    user: root #should find a diff way for prod environments
     volumes:
-      - ./tempo-config.yaml:/etc/tempo/tempo-local.yaml
-      - tempo-data:/tmp/tempo
+      # Ensure local file is tempo-config.yaml and it uses /tempo internal paths
+      - ./tempo-config.yaml:/etc/tempo/tempo-local.yaml:ro
+      - tempo-data:/data # Maps to internal /tempo path used in config
     ports:
-      - "3200:3200"  # tempo
+      - "3200:3200" # Map Tempo query UI/API to host
+      # - "4317:4317" # Only map OTLP gRPC if receiving from OUTSIDE docker (e.g. bypassing Alloy)
+      # - "4318:4318" # Only map OTLP HTTP if receiving from OUTSIDE docker
     restart: unless-stopped
     networks:
       - observability
 
   prometheus:
     image: prom/prometheus:latest
+    container_name: prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yaml
+      - --storage.tsdb.path=/prometheus
     volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yaml
+      - ./prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
       - prometheus-data:/prometheus
     ports:
       - "9090:9090"
@@ -66,9 +82,10 @@ services:
 
 networks:
   observability:
+    driver: bridge # Default, but explicit
 
-volumes:
-  grafana-storage:
-  loki-data:
-  tempo-data:
-  prometheus-data:
+volumes: # Standardized syntax
+  grafana-storage: {}
+  loki-data: {}
+  tempo-data: {}
+  prometheus-data: {}
