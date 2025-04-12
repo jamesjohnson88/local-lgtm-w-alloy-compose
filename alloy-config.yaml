@@ -1,0 +1,41 @@
+server:
+  http:
+    listen_address: 0.0.0.0:8889
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+      http:
+
+processors:
+  batch:
+
+exporters:
+  loki:
+    endpoint: http://loki:3100/loki/api/v1/push
+  otlp/tempo:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
+  prometheus:
+    endpoint: prometheus:9090
+    namespace: alloy
+    send_timestamps: true
+    metric_expiration: 180m
+
+service:
+  pipelines:
+    logs:
+      level: info
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [loki]
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp/tempo]
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [prometheus]
