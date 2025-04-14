@@ -1,7 +1,3 @@
-// alloy-config.alloy - Native River configuration for Alloy (REVISED)
-
-// --- OTLP Receiver ---
-// Listens for OTLP logs, traces, and metrics
 otelcol.receiver.otlp "default" {
   grpc {
     endpoint = "0.0.0.0:4317" // Alloy's own gRPC listening port
@@ -10,8 +6,6 @@ otelcol.receiver.otlp "default" {
     endpoint = "0.0.0.0:4318" // Alloy's own HTTP listening port
   }
 
-  // Output blocks define where the received data goes next
-  // Note: Using .input for otelcol.* components
   output {
     logs    = [otelcol.processor.batch.default.input]
     metrics = [otelcol.processor.batch.default.input]
@@ -19,78 +13,44 @@ otelcol.receiver.otlp "default" {
   }
 }
 
-// --- Batch Processor ---
-// Batches data before exporting
 otelcol.processor.batch "default" {
-  // Default batch settings are often okay to start
-  // timeout = "1s"
-  // send_batch_size = 8192
-
-  // Output blocks define where the processed data goes next
   output {
-    // Use .receiver for native loki.write component
-    logs    = [loki.write.default.receiver]
-    // Use .receiver for native prometheus.remote_write component
-    metrics = [prometheus.remote_write.default.receiver]
-    // Use .input for otelcol.exporter.otlp component
+    logs    = [otelcol.exporter.loki.default.input]
+    metrics = [otelcol.exporter.prometheus.default.input]
     traces  = [otelcol.exporter.otlp.tempo.input]
   }
 }
 
-// --- Loki Exporter (using native loki.write) ---
-// Note: otelcol.exporter.loki is just a wrapper now
+otelcol.exporter.prometheus "default" {
+  forward_to = [prometheus.remote_write.mimir.receiver]
+}
+
 otelcol.exporter.loki "default" {
   forward_to = [loki.write.default.receiver]
 }
 
-// Configure the actual Loki write destination
 loki.write "default" {
   endpoint {
     url = "http://loki:3100/loki/api/v1/push"
   }
-  // external_labels = {} // Optional: Add labels here
+  // external_labels = {} // Optional: Add labels
 }
 
-// --- Tempo Exporter ---
-// Sends traces to Tempo (otelcol.exporter.otlp is correct here)
 otelcol.exporter.otlp "tempo" {
   client {
-    endpoint = "tempo:4317" // Tempo's internal OTLP gRPC address
+    endpoint = "tempo:4317"
     tls {
       insecure = true
     }
   }
 }
 
-// --- Prometheus Remote Write Exporter (using native prometheus.remote_write) ---
-// Sends metrics to Prometheus (or a compatible remote_write endpoint)
-prometheus.remote_write "default" {
+prometheus.remote_write "mimir" {
   endpoint {
-    url = "http://prometheus:9090/api/v1/write" // Prometheus remote_write endpoint
-    // Add other settings like basic_auth, headers if needed
-  }
-  // external_labels = {} // Optional: Add labels here
-}
-
-// --- Alloy Server Settings ---
-// Configures Alloy's own HTTP server for UI / API / metrics
-// This is a top-level block, not a component. Ensure it's not nested.
-server {
-  http {
-    listen_addr = "0.0.0.0" // Listen address for Alloy's own server
-    listen_port = 12345     // Default Alloy server port
+    url = "http://mimir:9009/api/v1/push"
   }
 }
 
-// Optional: Expose Alloy's own metrics for Prometheus to scrape
-// Needs the prometheus.scrape component
-prometheus.scrape "self" {
-  targets    = [{"__address__" = "localhost:12345"}] // Scrape Alloy's own server metrics endpoint
-  // Forward Alloy's own metrics to Prometheus via the remote_write component
-  forward_to = [prometheus.remote_write.default.receiver]
-}
-
-// Optional: Logging block for Alloy's own logs
 logging {
   level  = "info"
   format = "logfmt"
